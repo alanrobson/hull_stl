@@ -1,6 +1,6 @@
 defmodule HullSTL.Geometry do
 
-  import Graphmath
+  alias Graphmath.Vec3, as: V
 
   # dimensions in meters
   @hboh 1.5 # half beam of hull at widest
@@ -12,8 +12,7 @@ defmodule HullSTL.Geometry do
   @ordinary_thickness 0.01 # normal scantling thickness
   @x_power 1.5 # profile is y = x^@x_power as a simple start
 
-  defp section(station, origin, thickness_with_frames) do
-    {_,_,z} = origin
+  def section(station, origin) do
     # steps in the x direction - across the beam 
     # from where station crosses the centerline to where it meets the sheer 
     # each step is a "buttock"
@@ -26,14 +25,21 @@ defmodule HullSTL.Geometry do
   def start_triangles(current) do
       1..@x_steps
       |> Enum.flat_map(fn i -> _start_triangle_faces(i, current) end) 
-      # Alan |> Enum.map(fn i ->  %{normal: _triangle_to_vectors(i) |> _cross(), triangle: i} end) 
+      |> Enum.map(fn i ->  %{normal: _triangle_to_normal(i), triangle: i} end) 
   end 
 
-  def triangles([last, triangles], current) do
+  def triangles([last, _], current) do
       0..@x_steps
       |> Enum.flat_map(fn i -> _face_triangles(i, last, current) end) 
-      #Alan |> Enum.map(fn i ->  %{normal: _triangle_to_vectors(i) |> _cross(), triangle: i} end) 
+      |> Enum.map(fn i ->  %{normal: _triangle_to_normal(i), triangle: i} end) 
   end 
+  
+  # define the fore-aft line to sweep the origin of the section along
+  def origin(z) do
+    V.create(0.0, 0.0, z)
+    # the line must curve in the Y (plan plane toward the centerline) direction toward the bow 
+    # to keep the stringers sane rather than rise to meet the sheer
+  end
 
   # define the hull section to be swept along the line y = f(x)
   # Basic design assumption is that the section is constant and independent of z
@@ -42,21 +48,15 @@ defmodule HullSTL.Geometry do
   end
 
   defp _normal(x) do
-    up=Vec3.create(1.0, @x_power * x, 0.0)
-    forward=Vec3.create(0.0, 0.0, 1.0)
-    Vec3.cross(up, forward) |> Vec3.normalize()
+    up=V.create(1.0, @x_power * x, 0.0)
+    forward=V.create(0.0, 0.0, 1.0)
+    V.cross(up, forward) |> V.normalize()
   end
 
-  # define the fore-aft line to sweep the origin of the section along
-  defp _origin(z) do
-    Vec3.create(0.0, 0.0, z)
-    # the line must curve in the Y (plan plane toward the centerline) direction toward the bow 
-    # to keep the stringers sane rather than rise to meet the sheer
-  end
 
   # define the sheer line
   defp _sheer(z) do
-    Vec3.create(@hboh, _calc_y(@hboh), z)
+    V.create(@hboh, _calc_y(@hboh), z)
   end
 
   #define the scantlings (hull skin thickness) including re-enforcments (stringers / ribs)
@@ -70,7 +70,7 @@ defmodule HullSTL.Geometry do
 
   defp _step_to_x(i,station) do
     # want @x_steps equal steps (buttocks) from origin to sheer
-    {x_interval,_,_}  = Vec3.subtract(_sheer(station), _origin(station))
+    {x_interval,_,_}  = V.subtract(_sheer(station), origin(station))
     step_size = x_interval / @x_steps
     {i, i * step_size}
   end
@@ -83,14 +83,14 @@ defmodule HullSTL.Geometry do
       buttock: buttock, 
       normal: normal,
       thickness: thickness,
-      outer: Vec3.create(x, y, 0.0) |> Vec3.add(origin),
-      offset: Vec3.scale(normal, thickness)
+      outer: V.create(x, y, 0.0) |> V.add(origin),
+      offset: V.scale(normal, thickness)
     }
   end
 
 
-  defp _triangle_to_vectors({{x0,y0,z0}, {x1,y1,z1}, {x2,y2,z2}}) do
-    {{x1 - x0, y1 - y0, z1 - z0}, {x2 - x0, y2 - y0, z2 - z0}}
+  defp _triangle_to_normal({{x0,y0,z0}, {x1,y1,z1}, {x2,y2,z2}}) do
+    V.cross(V.create(x1 - x0, y1 - y0, z1 - z0), V.create(x2 - x0, y2 - y0, z2 - z0)) |> V.normalize()
   end
 
   defp _start_triangle_faces(i, current) do
