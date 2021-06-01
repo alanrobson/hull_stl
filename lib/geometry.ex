@@ -68,9 +68,9 @@ defmodule HullSTL.Geometry do
     end
   end
 
-  defp _step_to_x(i,station) do
+  defp _step_to_x(i,{_,_,station_z}) do
     # want @x_steps equal steps (buttocks) from origin to sheer
-    {x_interval,_,_}  = V.subtract(_sheer(station), origin(station))
+    {x_interval,_,_}  = V.subtract(_sheer(station_z), origin(station_z))
     step_size = x_interval / @x_steps
     {i, i * step_size}
   end
@@ -79,13 +79,18 @@ defmodule HullSTL.Geometry do
     thickness = max(_thickness(@stringer_spacing, buttock), _thickness(@rib_spacing, station))
     y = _calc_y(x)
     normal = _normal(x)
-    %{station: station,
+    offset =  V.scale(normal, thickness)
+    outer = V.create(x, y, 0.0) |> V.add(origin)
+
+    %{
+      station: station,
       buttock: buttock, 
       normal: normal,
       thickness: thickness,
-      outer: V.create(x, y, 0.0) |> V.add(origin),
-      offset: V.scale(normal, thickness)
-    }
+      outer: outer,
+      inner: V.add(outer, offset)
+     }
+
   end
 
 
