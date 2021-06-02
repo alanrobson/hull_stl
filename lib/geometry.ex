@@ -4,22 +4,33 @@ defmodule HullSTL.Geometry do
 
   # dimensions in meters
   @hboh 1.5 # half beam of hull at widest
-  @x_steps 20 # number of buttocks
-  @rib_spacing 5 # number of stations between transverse re-enforcement centers
-  @stringer_spacing 20 # number of buttocks between fore-and-aft re-enforcements
+  @x_step_size  0.05
+  @x_steps trunc(@hboh / @x_step_size) # number of buttocks
+  @rib_spacing 20 # number of stations between transverse re-enforcement centers
+  @stringer_spacing 10 # number of buttocks between fore-and-aft re-enforcements
   @stiffener_width 2 # a stiffener is a rib or a stringer
   @stiffener_thickness 0.1 # total hull thickness at reenforcement point
   @ordinary_thickness 0.01 # normal scantling thickness
   @x_power 1.5 # profile is y = x^@x_power as a simple start
 
-  def section(station, origin) do
-    # steps in the x direction - across the beam 
-    # from where station crosses the centerline to where it meets the sheer 
-    # each step is a "buttock"
+  def section(station, z_step_size) do
     0..@x_steps
-    |> Enum.map(fn i -> _step_to_x(i, origin) end)
-    |> Enum.map(fn x -> _calc_section(x, station, origin) end) 
-    # co-ordinates in the x(beam), y(freeboard), z(length) directions
+    |> Enum.map(fn i ->
+        thickness = max(_thickness(@stringer_spacing, i), _thickness(@rib_spacing, station))
+        x = (i * @x_step_size)
+        y = _calc_y(x)
+        normal = _normal(x)
+        offset =  V.scale(normal, thickness)
+        outer = V.create(x, y, 0.0) |> V.add(_origin(station * z_step_size))
+        %{
+          station: station,
+          buttock: i, 
+          normal: normal,
+          thickness: thickness,
+          outer: outer,
+          inner: V.add(outer, offset)
+        } 
+        end)
   end
 
   def start_triangles(current) do
@@ -35,10 +46,15 @@ defmodule HullSTL.Geometry do
   end 
   
   # define the fore-aft line to sweep the origin of the section along
-  def origin(z) do
+  defp _origin(z) do
     V.create(0.0, 0.0, z)
     # the line must curve in the Y (plan plane toward the centerline) direction toward the bow 
     # to keep the stringers sane rather than rise to meet the sheer
+  end
+
+  # define the sheer line
+  defp _sheer(z) do
+    V.create(@hboh, _calc_y(@hboh), z)
   end
 
   # define the hull section to be swept along the line y = f(x)
@@ -50,13 +66,7 @@ defmodule HullSTL.Geometry do
   defp _normal(x) do
     up=V.create(1.0, @x_power * x, 0.0)
     forward=V.create(0.0, 0.0, 1.0)
-    V.cross(up, forward) |> V.normalize()
-  end
-
-
-  # define the sheer line
-  defp _sheer(z) do
-    V.create(@hboh, _calc_y(@hboh), z)
+    V.cross(forward, up) |> V.normalize()
   end
 
   #define the scantlings (hull skin thickness) including re-enforcments (stringers / ribs)
@@ -70,28 +80,13 @@ defmodule HullSTL.Geometry do
 
   defp _step_to_x(i,{_,_,station_z}) do
     # want @x_steps equal steps (buttocks) from origin to sheer
-    {x_interval,_,_}  = V.subtract(_sheer(station_z), origin(station_z))
+    IO.inspect(:stderr, _sheer(station_z), [])
+    IO.inspect(:stderr, _origin(station_z), [])
+    {x_interval,_,_}  = V.subtract(_sheer(station_z), _origin(station_z))
     step_size = x_interval / @x_steps
     {i, i * step_size}
   end
 
-  defp _calc_section({buttock, x}, station, origin) do
-    thickness = max(_thickness(@stringer_spacing, buttock), _thickness(@rib_spacing, station))
-    y = _calc_y(x)
-    normal = _normal(x)
-    offset =  V.scale(normal, thickness)
-    outer = V.create(x, y, 0.0) |> V.add(origin)
-
-    %{
-      station: station,
-      buttock: buttock, 
-      normal: normal,
-      thickness: thickness,
-      outer: outer,
-      inner: V.add(outer, offset)
-     }
-
-  end
 
 
   defp _triangle_to_normal({{x0,y0,z0}, {x1,y1,z1}, {x2,y2,z2}}) do
